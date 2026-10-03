@@ -1,0 +1,31 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+# statlib: static library. include/ is a transitive (public) include dir.
+cc_library(
+    name = "statlib",
+    srcs = ["src/statlib/statistics.cpp"],
+    hdrs = glob(["include/statlib/*.hpp"]),
+    copts = ["-std=c++17"],
+    includes = ["include"],
+    linkstatic = True,
+)
+
+# statcli: executable linking statlib only.
+cc_binary(
+    name = "statcli",
+    srcs = ["src/cli/main.cpp"],
+    copts = ["-std=c++17"],
+    deps = [":statlib"],
+)
+
+# statlib_tests: unit tests. tests/ is private to this target.
+cc_test(
+    name = "statlib_tests",
+    srcs = [
+        "tests/statistics_test.cpp",
+        "tests/testing/check.hpp",
+    ],
+    copts = ["-std=c++17"],
+    includes = ["tests"],
+    deps = [":statlib"],
+)
