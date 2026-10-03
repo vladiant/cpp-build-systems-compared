@@ -1,0 +1,193 @@
+# CI — build and test the SAME source tree under all four build systems.
+#
+# Each build system runs in its own job so the matrix is transparent in the
+# GitHub UI and a failure points straight at the offending tool. Every job:
+#   1. installs the build tool it needs,
+#   2. builds statlib + statcli + the unit tests,
+#   3. RUNS the tests (the job fails on any test failure),
+#   4. runs a statcli smoke check (feed "1 2 3 4 5", assert the stddev line).
+#
+# Toolchain targets: C++17, g++ (default). A separate, optional clang++ 18 job
+# demonstrates compiler portability under CMake.
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save free-tier minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # CMake (3.x, preinstalled on ubuntu-latest). The default Unix Makefiles
+  # generator is fine. g++ is the default compiler.
+  # ---------------------------------------------------------------------------
+  cmake:
+    name: CMake (g++ / C++17)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain versions
+        run: |
+          cmake --version
+          g++ --version
+
+      - name: Configure
+        run: cmake -S . -B build-cmake -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build (statlib + statcli + tests)
+        run: cmake --build build-cmake -j
+
+      - name: Test (ctest)
+        working-directory: build-cmake
+        run: ctest --output-on-failure
+
+      - name: statcli smoke check
+        run: |
+          out="$(printf '1 2 3 4 5' | ./build-cmake/statcli)"
+          echo "$out"
+          echo "$out" | grep -qF 'stddev: 1.41421'
+
+  # ---------------------------------------------------------------------------
+  # Bazel (classic WORKSPACE). bazelisk installs a modern Bazel which defaults
+  # to Bzlmod; this project has no MODULE.bazel, so we select the WORKSPACE
+  # path via `--config=ci` (-> --noenable_bzlmod, defined in .bazelrc).
+  # USE_BAZEL_VERSION pins a release that still supports WORKSPACE and the flag.
+  # ---------------------------------------------------------------------------
+  bazel:
+    name: Bazel (WORKSPACE / C++17)
+    runs-on: ubuntu-latest
+    env:
+      USE_BAZEL_VERSION: "7.4.1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bazel (bazelisk)
+        uses: bazelbuild/setup-bazelisk@v3
+
+      - name: Show Bazel version
+        run: bazel --version
+
+      - name: Build (//...)
+        run: bazel build --config=ci //...
+
+      - name: Test (//...)
+        run: bazel test --config=ci //... --test_output=errors
+
+      - name: statcli smoke check
+        run: |
+          out="$(printf '1 2 3 4 5' | ./bazel-bin/statcli)"
+          echo "$out"
+          echo "$out" | grep -qF 'stddev: 1.41421'
+
+  # ---------------------------------------------------------------------------
+  # Meson (+ Ninja backend). Meson is installed via pipx; Ninja is preinstalled
+  # on ubuntu-latest (install as a fallback if missing).
+  # ---------------------------------------------------------------------------
+  meson:
+    name: Meson (g++ / C++17)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Meson + Ninja
+        run: |
+          pipx install meson
+          ninja --version || { sudo apt-get update && sudo apt-get install -y ninja-build; }
+
+      - name: Show toolchain versions
+        run: |
+          meson --version
+          ninja --version
+
+      - name: Configure
+        run: meson setup build-meson
+
+      - name: Build (statlib + statcli + tests)
+        run: meson compile -C build-meson
+
+      - name: Test
+        run: meson test -C build-meson --print-errorlogs
+
+      - name: statcli smoke check
+        run: |
+          out="$(printf '1 2 3 4 5' | ./build-meson/statcli)"
+          echo "$out"
+          echo "$out" | grep -qF 'stddev: 1.41421'
+
+  # ---------------------------------------------------------------------------
+  # xmake. Installed via the official xmake-io/github-action-setup-xmake action.
+  # The binary is nested under build-xmake/<plat>/<arch>/<mode>/; we locate it
+  # with `find` for the smoke check.
+  # ---------------------------------------------------------------------------
+  xmake:
+    name: xmake (g++ / C++17)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: "3.1.1"
+
+      - name: Show xmake version
+        run: xmake --version
+
+      - name: Configure
+        run: xmake f -y
+
+      - name: Build (statlib + statcli + tests)
+        run: xmake build
+
+      - name: Test
+        run: xmake test
+
+      - name: statcli smoke check
+        run: |
+          xbin="$(find build-xmake -type f -name statcli | head -n1)"
+          out="$(printf '1 2 3 4 5' | "$xbin")"
+          echo "$out"
+          echo "$out" | grep -qF 'stddev: 1.41421'
+
+  # ---------------------------------------------------------------------------
+  # Bonus: clang++ 18 under CMake to prove compiler portability. Kept simple and
+  # passing; ubuntu-24.04 ships clang-18.
+  # ---------------------------------------------------------------------------
+  cmake-clang:
+    name: CMake (clang++ 18 / C++17)
+    runs-on: ubuntu-24.04
+    env:
+      CC: clang-18
+      CXX: clang++-18
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang 18
+        run: |
+          clang++-18 --version || { sudo apt-get update && sudo apt-get install -y clang-18; }
+
+      - name: Configure (clang)
+        run: cmake -S . -B build-clang -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build-clang -j
+
+      - name: Test (ctest)
+        working-directory: build-clang
+        run: ctest --output-on-failure
+
+      - name: statcli smoke check
+        run: |
+          out="$(printf '1 2 3 4 5' | ./build-clang/statcli)"
+          echo "$out"
+          echo "$out" | grep -qF 'stddev: 1.41421'

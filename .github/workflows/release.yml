@@ -1,0 +1,109 @@
+# Release — triggered on SemVer tags (v*). Builds the CMake Release artifacts,
+# packages the statcli binary + public headers into a versioned tarball, and
+# publishes it both as a workflow artifact and as a GitHub Release asset.
+#
+# Versioning: the PM owns the VERSION file + tag (via the semver-version-publish
+# skill). This workflow READS VERSION for naming and falls back to the tag name
+# (minus the leading "v") if VERSION is not present, so it is robust either way.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag or ref to build a release from (e.g. v1.2.3)"
+        required: true
+
+# The GitHub Release creation step needs write access to repository contents.
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Build + package CMake Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      # Resolve a version string for artifact naming.
+      #   * Prefer the VERSION file (PM-managed, SemVer).
+      #   * Otherwise derive it from the pushed tag (strip the leading "v").
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ -f VERSION ]; then
+            version="$(tr -d '[:space:]' < VERSION)"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: ${version}"
+
+      - name: Show toolchain versions
+        run: |
+          cmake --version
+          g++ --version
+
+      - name: Configure (Release)
+        run: cmake -S . -B build-cmake -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build-cmake -j
+
+      # Gate the release on a green test run — never ship an untested binary.
+      - name: Test (ctest)
+        working-directory: build-cmake
+        run: ctest --output-on-failure
+
+      - name: statcli smoke check
+        run: |
+          out="$(printf '1 2 3 4 5' | ./build-cmake/statcli)"
+          echo "$out"
+          echo "$out" | grep -qF 'stddev: 1.41421'
+
+      # Assemble a self-contained staging tree: the statcli binary, the public
+      # headers (for downstream linkers), and the license.
+      - name: Stage package contents
+        id: stage
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          pkg="cpp-build-systems-compared-${version}-linux-x86_64"
+          mkdir -p "dist/${pkg}/bin" "dist/${pkg}/include"
+          cp build-cmake/statcli "dist/${pkg}/bin/"
+          cp -r include/* "dist/${pkg}/include/"
+          cp LICENSE "dist/${pkg}/"
+          echo "${version}" > "dist/${pkg}/VERSION"
+          tar -czf "dist/${pkg}.tar.gz" -C dist "${pkg}"
+          sha256sum "dist/${pkg}.tar.gz" > "dist/${pkg}.tar.gz.sha256"
+          echo "pkg=${pkg}" >> "$GITHUB_OUTPUT"
+          echo "tarball=dist/${pkg}.tar.gz" >> "$GITHUB_OUTPUT"
+          ls -l dist
+
+      # Always publish the tarball as a workflow artifact (available even for
+      # workflow_dispatch runs that are not attached to a real tag).
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.stage.outputs.pkg }}
+          path: |
+            ${{ steps.stage.outputs.tarball }}
+            ${{ steps.stage.outputs.tarball }}.sha256
+          if-no-files-found: error
+
+      # Create (or update) the GitHub Release and attach the tarball + checksum.
+      # Only runs for real tag pushes; dispatch runs stop at the artifact above.
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.ver.outputs.version }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            ${{ steps.stage.outputs.tarball }}
+            ${{ steps.stage.outputs.tarball }}.sha256

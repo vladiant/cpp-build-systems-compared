@@ -1,0 +1,15 @@
+# Minimal Bazel configuration for cpp-build-systems-compared.
+#
+# This project uses the *classic* WORKSPACE model (see WORKSPACE + BUILD.bazel);
+# it does NOT provide a MODULE.bazel. Modern Bazel / bazelisk default to Bzlmod,
+# which would ignore WORKSPACE and break the build. Force the WORKSPACE path so
+# CI matches the locally verified build.
+#
+# The flag lives under a `ci` config so it is applied ONLY when CI runs
+# `bazel ... --config=ci`. This keeps the flag out of the way of older local
+# Bazel builds that predate the option, while guaranteeing modern CI Bazel
+# (installed via bazelisk, which defaults to Bzlmod) uses the WORKSPACE path.
+#
+# `--noenable_bzlmod` is the negation of the boolean `--enable_bzlmod` flag and
+# is valid for Bazel 6.3 through 8.x (the versions that still support WORKSPACE).
+common:ci --noenable_bzlmod
