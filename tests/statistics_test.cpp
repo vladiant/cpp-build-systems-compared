@@ -109,6 +109,20 @@ STATLIB_TEST(median_even_count) {
   CHECK_NEAR(statlib::median({10.0, 20.0}), 15.0, kEps);
 }
 
+STATLIB_TEST(median_even_count_unsorted) {
+  // QA-added: exercises the even-count branch on UNSORTED input, where the
+  // lower median is recovered via std::max_element over the partitioned lower
+  // half [begin, mid). The existing median_even_count cases use already-sorted
+  // inputs, and median_unsorted_input is odd-count, so this trickiest path was
+  // previously untested. Must not mutate the argument.
+  std::vector<double> a = {4.0, 1.0, 3.0, 2.0};
+  const std::vector<double> a_before = a;
+  CHECK_NEAR(statlib::median(a), 2.5, kEps);  // sorted: 1,2,3,4 -> (2+3)/2
+  CHECK(a == a_before);
+  // Six elements, scrambled: sorted 0,2,4,6,8,10 -> (4+6)/2 = 5.
+  CHECK_NEAR(statlib::median({10.0, 2.0, 8.0, 4.0, 6.0, 0.0}), 5.0, kEps);
+}
+
 STATLIB_TEST(median_unsorted_input) {
   // Must not assume sorted input, and must not mutate the argument.
   std::vector<double> data = {5.0, 1.0, 4.0, 2.0, 3.0};
