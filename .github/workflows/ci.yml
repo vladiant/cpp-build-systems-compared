@@ -34,7 +34,7 @@ jobs:
     name: CMake (g++ / C++17)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Show toolchain versions
         run: |
@@ -69,7 +69,7 @@ jobs:
     env:
       USE_BAZEL_VERSION: "7.4.1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Bazel (bazelisk)
         uses: bazelbuild/setup-bazelisk@v3
@@ -97,7 +97,7 @@ jobs:
     name: Meson (g++ / C++17)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Meson + Ninja
         run: |
@@ -133,7 +133,7 @@ jobs:
     name: xmake (g++ / C++17)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install xmake
         uses: xmake-io/github-action-setup-xmake@v1
@@ -170,7 +170,7 @@ jobs:
       CC: clang-18
       CXX: clang++-18
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install clang 18
         run: |
