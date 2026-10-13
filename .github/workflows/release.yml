@@ -87,7 +87,7 @@ jobs:
       # Always publish the tarball as a workflow artifact (available even for
       # workflow_dispatch runs that are not attached to a real tag).
       - name: Upload build artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.stage.outputs.pkg }}
           path: |
